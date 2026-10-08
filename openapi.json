@@ -1,0 +1,149 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cloudzaro Domain Reseller API",
+    "version": "1.0.0",
+    "description": "Register, transfer and manage domains, holder contacts, DNS records and DNSSEC for your customers.\n\n**Authentication:** create a key in the dashboard under *API* and send it as `Authorization: Bearer cz_live_…`. After 10 invalid keys an IP is locked for 15 minutes. Limit: 120 requests per minute per key.\n\n**Payment:** registrations and transfers are charged immediately to the card saved in your account. Renewals are charged automatically before expiry (with retries; if your bank asks for confirmation you receive an e-mail).\n\n**Prices:** see the live price list [/domains/prices.json](https://www.cloudzaro.com/domains/prices.json) (incl. 19 % VAT, without guarantee).\n\n**Included free:** DNS hosting with the Cloudzaro nameservers and DNSSEC.\n\nEndings that require proof of eligibility (`on_request`) and holder changes that cost a registry fee are only available via [support](https://www.cloudzaro.com/support).",
+    "contact": { "name": "Cloudzaro Support", "url": "https://www.cloudzaro.com/support" }
+  },
+  "servers": [{ "url": "https://www.cloudzaro.com/api/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "Availability" }, { "name": "Contacts", "description": "Holder handles (registrant)" },
+    { "name": "Domains" }, { "name": "Orders", "description": "Registrations and transfers run asynchronously" },
+    { "name": "DNS" }, { "name": "DNSSEC" }
+  ],
+  "paths": {
+    "/check": {
+      "get": {
+        "tags": ["Availability"], "summary": "Check availability at the registry",
+        "parameters": [
+          { "name": "name", "in": "query", "required": true, "schema": { "type": "string" }, "example": "meinefirma" },
+          { "name": "tlds", "in": "query", "required": false, "description": "Comma separated, max. 10. Default: the 10 most popular endings (or the ending in name).", "schema": { "type": "string" }, "example": "de,com,eu" }
+        ],
+        "responses": {
+          "200": { "description": "Results", "content": { "application/json": { "schema": { "type": "object", "properties": {
+            "results": { "type": "array", "items": { "type": "object", "properties": {
+              "domain": { "type": "string", "example": "meinefirma.de" },
+              "status": { "type": "string", "enum": ["available", "taken", "unknown"] },
+              "on_request": { "type": "boolean" } } } },
+            "prices": { "type": "string", "format": "uri" } } } } } },
+          "401": { "$ref": "#/components/responses/Error" }, "422": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/contacts": {
+      "get": { "tags": ["Contacts"], "summary": "List holder contacts",
+        "responses": { "200": { "description": "Contacts", "content": { "application/json": { "schema": { "type": "object", "properties": { "contacts": { "type": "array", "items": { "$ref": "#/components/schemas/Contact" } } } } } } } } },
+      "post": { "tags": ["Contacts"], "summary": "Create a holder contact",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactInput" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contact" } } } }, "422": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/contacts/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "get": { "tags": ["Contacts"], "summary": "Get a contact", "responses": { "200": { "description": "Contact", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contact" } } } }, "404": { "$ref": "#/components/responses/Error" } } },
+      "put": { "tags": ["Contacts"], "summary": "Update a contact",
+        "description": "Address, phone and e-mail can always be changed (also for linked domains). A changed name/company is a holder change: not possible while the contact is linked to a domain whose holder change costs a registry fee (409).",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactInput" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contact" } } } }, "409": { "$ref": "#/components/responses/Error" }, "422": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/domains": {
+      "get": { "tags": ["Domains"], "summary": "List your registered domains",
+        "responses": { "200": { "description": "Domains", "content": { "application/json": { "schema": { "type": "object", "properties": { "domains": { "type": "array", "items": { "$ref": "#/components/schemas/Domain" } } } } } } } } },
+      "post": { "tags": ["Domains"], "summary": "Register a domain (paid immediately with the saved card)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["domain", "contact_id"], "properties": {
+          "domain": { "type": "string", "example": "meinefirma.de" },
+          "contact_id": { "type": "integer", "example": 12 },
+          "auto_renew": { "type": "boolean", "default": true } } } } } },
+        "responses": { "202": { "description": "Order accepted – poll GET /orders/{id}", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+          "402": { "$ref": "#/components/responses/Error" }, "422": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/transfers": {
+      "post": { "tags": ["Domains"], "summary": "Transfer a domain to Cloudzaro (paid immediately with the saved card)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["domain", "contact_id", "auth_code"], "properties": {
+          "domain": { "type": "string", "example": "meinefirma.com" },
+          "contact_id": { "type": "integer" },
+          "auth_code": { "type": "string" },
+          "auto_renew": { "type": "boolean", "default": true } } } } } },
+        "responses": { "202": { "description": "Order accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+          "402": { "$ref": "#/components/responses/Error" }, "422": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/orders/{id}": {
+      "get": { "tags": ["Orders"], "summary": "Order status",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Order", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/domains/{domain}": {
+      "parameters": [{ "$ref": "#/components/parameters/domain" }],
+      "get": { "tags": ["Domains"], "summary": "Domain details", "responses": { "200": { "description": "Domain", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Domain" } } } }, "404": { "$ref": "#/components/responses/Error" } } },
+      "patch": { "tags": ["Domains"], "summary": "Change automatic renewal or the holder",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": {
+          "auto_renew": { "type": "boolean", "description": "false = the domain expires at the end of the term" },
+          "contact_id": { "type": "integer", "description": "Holder change (only where free at the registry, otherwise 409)" } } } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Domain" } } } }, "409": { "$ref": "#/components/responses/Error" }, "502": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/domains/{domain}/authcode": {
+      "get": { "tags": ["Domains"], "summary": "Auth code for a transfer to another provider",
+        "parameters": [{ "$ref": "#/components/parameters/domain" }],
+        "responses": { "200": { "description": "Auth code", "content": { "application/json": { "schema": { "type": "object", "properties": { "domain": { "type": "string" }, "auth_code": { "type": "string" } } } } } } } }
+    },
+    "/domains/{domain}/dnssec": {
+      "put": { "tags": ["DNSSEC"], "summary": "Enable or disable DNSSEC (the key is published at the registry automatically)",
+        "parameters": [{ "$ref": "#/components/parameters/domain" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["enabled"], "properties": { "enabled": { "type": "boolean" } } } } } },
+        "responses": { "200": { "description": "State", "content": { "application/json": { "schema": { "type": "object", "properties": { "domain": { "type": "string" }, "dnssec": { "type": "boolean" } } } } } }, "502": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/domains/{domain}/dns": {
+      "parameters": [{ "$ref": "#/components/parameters/domain" }],
+      "get": { "tags": ["DNS"], "summary": "List DNS records", "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordList" } } } } } },
+      "post": { "tags": ["DNS"], "summary": "Add a record",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordInput" } } } },
+        "responses": { "201": { "description": "Added", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordChange" } } } }, "422": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/domains/{domain}/dns/{record_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/domain" }, { "name": "record_id", "in": "path", "required": true, "description": "id from GET /dns (changes when the record changes)", "schema": { "type": "string" } }],
+      "put": { "tags": ["DNS"], "summary": "Update a record",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordInput" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordChange" } } } }, "404": { "$ref": "#/components/responses/Error" }, "422": { "$ref": "#/components/responses/Error" } } },
+      "delete": { "tags": ["DNS"], "summary": "Delete a record", "responses": { "200": { "description": "Deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordList" } } } } } }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "description": "cz_live_… key from the dashboard" } },
+    "parameters": { "domain": { "name": "domain", "in": "path", "required": true, "schema": { "type": "string" }, "example": "meinefirma.de" } },
+    "responses": { "Error": { "description": "Error", "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "object", "properties": {
+      "code": { "type": "string", "example": "invalid_domain" }, "message": { "type": "string" } } } } } } } } },
+    "schemas": {
+      "ContactInput": { "type": "object", "required": ["type", "street", "postal_code", "city", "country", "email", "phone"], "properties": {
+        "type": { "type": "string", "enum": ["person", "company"] },
+        "first_name": { "type": "string", "description": "person only" }, "last_name": { "type": "string", "description": "person only" },
+        "organization": { "type": "string", "description": "company only" },
+        "street": { "type": "string" }, "postal_code": { "type": "string" }, "city": { "type": "string" },
+        "country": { "type": "string", "example": "DE", "description": "ISO 3166-1 alpha-2" },
+        "email": { "type": "string", "format": "email", "description": "must reach the holder (e-mail verification for generic endings)" },
+        "phone": { "type": "string", "example": "+49 170 1234567" } } },
+      "Contact": { "allOf": [{ "$ref": "#/components/schemas/ContactInput" }, { "type": "object", "properties": {
+        "id": { "type": "integer" }, "name": { "type": "string" }, "is_default": { "type": "boolean" }, "domain_count": { "type": "integer" } } }] },
+      "Domain": { "type": "object", "properties": {
+        "domain": { "type": "string" }, "status": { "type": "string", "enum": ["active", "pending"] },
+        "expires_at": { "type": "string", "format": "date" }, "auto_renew": { "type": "boolean" },
+        "renew_price": { "type": "number", "description": "EUR incl. VAT" }, "next_charge": { "type": "string", "format": "date", "nullable": true },
+        "contact_id": { "type": "integer", "nullable": true }, "dnssec": { "type": "boolean" },
+        "nameservers": { "type": "array", "items": { "type": "string" } } } },
+      "Order": { "type": "object", "properties": {
+        "id": { "type": "integer" }, "domain": { "type": "string" }, "type": { "type": "string", "enum": ["register", "transfer", "renew"] },
+        "status": { "type": "string", "enum": ["pending_payment", "paid", "processing", "completed", "failed", "canceled"], "description": "completed = active; failed = refunded" },
+        "error": { "type": "string", "nullable": true }, "created_at": { "type": "string", "format": "date-time" } } },
+      "RecordInput": { "type": "object", "required": ["name", "type", "content"], "properties": {
+        "name": { "type": "string", "example": "www", "description": "@ for the domain itself" },
+        "type": { "type": "string", "enum": ["A", "AAAA", "CNAME", "MX", "TXT", "SRV", "CAA", "NS"] },
+        "content": { "type": "string", "example": "203.0.113.10" },
+        "ttl": { "type": "integer", "default": 3600 },
+        "priority": { "type": "integer", "description": "MX/SRV" }, "weight": { "type": "integer", "description": "SRV" }, "port": { "type": "integer", "description": "SRV" },
+        "flags": { "type": "integer", "description": "CAA" }, "tag": { "type": "string", "description": "CAA" } } },
+      "Record": { "allOf": [{ "$ref": "#/components/schemas/RecordInput" }, { "type": "object", "properties": { "id": { "type": "string" }, "disabled": { "type": "boolean" } } }] },
+      "RecordList": { "type": "object", "properties": { "domain": { "type": "string" }, "records": { "type": "array", "items": { "$ref": "#/components/schemas/Record" } } } },
+      "RecordChange": { "type": "object", "properties": { "id": { "type": "string" }, "warnings": { "type": "array", "items": { "type": "string" } }, "records": { "type": "array", "items": { "$ref": "#/components/schemas/Record" } } } }
+    }
+  }
+}
